@@ -10,24 +10,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xtls/xray-core/app/dispatcher"
-	"github.com/xtls/xray-core/app/reverse"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/buf"
 	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/common/log"
-	"github.com/xtls/xray-core/common/mux"
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/retry"
-	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/common/signal"
 	"github.com/xtls/xray-core/common/task"
 	"github.com/xtls/xray-core/core"
-	"github.com/xtls/xray-core/features"
 	"github.com/xtls/xray-core/features/dns"
-	"github.com/xtls/xray-core/features/extension"
 	feature_inbound "github.com/xtls/xray-core/features/inbound"
 	"github.com/xtls/xray-core/features/outbound"
 	"github.com/xtls/xray-core/features/policy"
@@ -78,7 +72,6 @@ type Handler struct {
 	validator              vless.Validator
 	decryption             *encryption.ServerInstance
 	outboundHandlerManager outbound.Manager
-	observer               features.Feature
 	defaultDispatcher      routing.Dispatcher
 	ctx                    context.Context
 	fallbacks              map[string]map[string]map[string]*Fallback // or nil
@@ -94,7 +87,6 @@ func New(ctx context.Context, config *Config, dc dns.Client, validator vless.Val
 		stats:                  v.GetFeature(stats.ManagerType()).(stats.Manager),
 		validator:              validator,
 		outboundHandlerManager: v.GetFeature(outbound.ManagerType()).(outbound.Manager),
-		observer:               v.GetFeature(extension.ObservatoryType()),
 		defaultDispatcher:      v.GetFeature(routing.DispatcherType()).(routing.Dispatcher),
 		ctx:                    ctx,
 	}
@@ -186,32 +178,6 @@ func isMuxAndNotXUDP(request *protocol.RequestHeader, first *buf.Buffer) bool {
 	return !(firstBytes[2] == 0 && // ID high
 		firstBytes[3] == 0 && // ID low
 		firstBytes[6] == 2) // Network type: UDP
-}
-
-func (h *Handler) GetReverse(a *vless.MemoryAccount) (*Reverse, error) {
-	u := h.validator.Get(a.ID.UUID())
-	if u == nil {
-		return nil, errors.New("reverse: user " + a.ID.String() + " doesn't exist anymore")
-	}
-	a = u.Account.(*vless.MemoryAccount)
-	if a.Reverse == nil || a.Reverse.Tag == "" {
-		return nil, errors.New("reverse: user " + a.ID.String() + " is not allowed to create reverse proxy")
-	}
-	r := h.outboundHandlerManager.GetHandler(a.Reverse.Tag)
-	if r == nil {
-		picker, _ := reverse.NewStaticMuxPicker()
-		r = &Reverse{tag: a.Reverse.Tag, picker: picker, client: &mux.ClientManager{Picker: picker}}
-		for len(h.outboundHandlerManager.ListHandlers(h.ctx)) == 0 {
-			time.Sleep(time.Second) // prevents this outbound from becoming the default outbound
-		}
-		if err := h.outboundHandlerManager.AddHandler(h.ctx, r); err != nil {
-			return nil, err
-		}
-	}
-	if r, ok := r.(*Reverse); ok {
-		return r, nil
-	}
-	return nil, errors.New("reverse: outbound " + a.Reverse.Tag + " is not type Reverse")
 }
 
 func (h *Handler) RemoveReverse(u *protocol.MemoryUser) {
@@ -614,11 +580,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 	bufferWriter.SetFlushNext()
 
 	if request.Command == protocol.RequestCommandRvs {
-		r, err := h.GetReverse(account)
-		if err != nil {
-			return err
-		}
-		return r.NewMux(ctx, dispatcher.WrapLink(ctx, h.policyManager, h.stats, &transport.Link{Reader: clientReader, Writer: clientWriter}), h.observer)
+		return errors.New("VLESS reverse is disabled in this build")
 	}
 
 	if err := dispatch.DispatchLink(
@@ -629,63 +591,5 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 	); err != nil {
 		return errors.New("failed to dispatch request").Base(err)
 	}
-	return nil
-}
-
-type Reverse struct {
-	tag    string
-	picker *reverse.StaticMuxPicker
-	client *mux.ClientManager
-}
-
-func (r *Reverse) Tag() string {
-	return r.tag
-}
-
-func (r *Reverse) NewMux(ctx context.Context, link *transport.Link, observer features.Feature) error {
-	muxClient, err := mux.NewClientWorker(*link, mux.ClientStrategy{})
-	if err != nil {
-		return errors.New("failed to create mux client worker").Base(err)
-	}
-	worker, err := reverse.NewPortalWorker(muxClient)
-	if err != nil {
-		return errors.New("failed to create portal worker").Base(err)
-	}
-	r.picker.AddWorker(worker)
-	if burstObs, ok := observer.(extension.BurstObservatory); ok {
-		go burstObs.Check([]string{r.Tag()})
-	}
-	select {
-	case <-ctx.Done():
-	case <-muxClient.WaitClosed():
-	}
-	return nil
-}
-
-func (r *Reverse) Dispatch(ctx context.Context, link *transport.Link) {
-	outbounds := session.OutboundsFromContext(ctx)
-	ob := outbounds[len(outbounds)-1]
-	if ob != nil {
-		if ob.Target.Network == net.Network_UDP && ob.OriginalTarget.Address != nil && ob.OriginalTarget.Address != ob.Target.Address {
-			link.Reader = &buf.EndpointOverrideReader{Reader: link.Reader, Dest: ob.Target.Address, OriginalDest: ob.OriginalTarget.Address}
-			link.Writer = &buf.EndpointOverrideWriter{Writer: link.Writer, Dest: ob.Target.Address, OriginalDest: ob.OriginalTarget.Address}
-		}
-		r.client.Dispatch(session.ContextWithIsReverseMux(ctx, true), link)
-	}
-}
-
-func (r *Reverse) Start() error {
-	return nil
-}
-
-func (r *Reverse) Close() error {
-	return nil
-}
-
-func (r *Reverse) SenderSettings() *serial.TypedMessage {
-	return nil
-}
-
-func (r *Reverse) ProxySettings() *serial.TypedMessage {
 	return nil
 }

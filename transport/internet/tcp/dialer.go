@@ -21,11 +21,7 @@ func Dial(ctx context.Context, dest net.Destination, streamSettings *internet.Me
 	errors.LogInfo(ctx, "dialing TCP to ", dest)
 	var conn net.Conn
 	var err error
-	if streamSettings.FinalMask != nil {
-		conn, err = streamSettings.FinalMask.DialTCP(ctx, dest)
-	} else {
-		conn, err = internet.DialSystem(ctx, dest, streamSettings.SocketSettings)
-	}
+	conn, err = internet.DialSystem(ctx, dest, streamSettings.SocketSettings)
 	if err != nil {
 		return nil, errors.New("failed to dial to dest").Base(err)
 	}

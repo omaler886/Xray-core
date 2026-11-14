@@ -16,47 +16,26 @@ import (
 	"github.com/xtls/xray-core/common/serial"
 	core "github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/proxy/freedom"
-	"github.com/xtls/xray-core/proxy/masque"
-	"github.com/xtls/xray-core/proxy/vless"
-	"github.com/xtls/xray-core/proxy/vless/inbound"
-	"github.com/xtls/xray-core/proxy/vless/outbound"
 	"github.com/xtls/xray-core/transport/internet"
-	"google.golang.org/protobuf/proto"
 )
 
 var (
 	inboundConfigLoader = NewJSONConfigLoader(ConfigCreatorCache{
 		"tunnel":        func() interface{} { return new(DokodemoConfig) },
 		"dokodemo-door": func() interface{} { return new(DokodemoConfig) },
-		"http":          func() interface{} { return new(HTTPServerConfig) },
-		"shadowsocks":   func() interface{} { return new(ShadowsocksServerConfig) },
 		"mixed":         func() interface{} { return new(SocksServerConfig) },
 		"socks":         func() interface{} { return new(SocksServerConfig) },
 		"vless":         func() interface{} { return new(VLessInboundConfig) },
-		"vmess":         func() interface{} { return new(VMessInboundConfig) },
-		"trojan":        func() interface{} { return new(TrojanServerConfig) },
-		"wireguard":     func() interface{} { return &WireGuardConfig{IsClient: false} },
-		"hysteria":      func() interface{} { return new(HysteriaServerConfig) },
-		"masque":        func() interface{} { return new(MasqueServerConfig) },
-		"tun":           func() interface{} { return new(TunConfig) },
 	}, "protocol", "settings")
 
 	outboundConfigLoader = NewJSONConfigLoader(ConfigCreatorCache{
-		"block":       func() interface{} { return new(BlackholeConfig) },
-		"blackhole":   func() interface{} { return new(BlackholeConfig) },
-		"loopback":    func() interface{} { return new(LoopbackConfig) },
-		"direct":      func() interface{} { return new(FreedomConfig) },
-		"freedom":     func() interface{} { return new(FreedomConfig) },
-		"http":        func() interface{} { return new(HTTPClientConfig) },
-		"shadowsocks": func() interface{} { return new(ShadowsocksClientConfig) },
-		"socks":       func() interface{} { return new(SocksClientConfig) },
-		"vless":       func() interface{} { return new(VLessOutboundConfig) },
-		"vmess":       func() interface{} { return new(VMessOutboundConfig) },
-		"trojan":      func() interface{} { return new(TrojanClientConfig) },
-		"hysteria":    func() interface{} { return new(HysteriaClientConfig) },
-		"masque":      func() interface{} { return new(MasqueClientConfig) },
-		"dns":         func() interface{} { return new(DNSOutboundConfig) },
-		"wireguard":   func() interface{} { return &WireGuardConfig{IsClient: true} },
+		"block":     func() interface{} { return new(BlackholeConfig) },
+		"blackhole": func() interface{} { return new(BlackholeConfig) },
+		"direct":    func() interface{} { return new(FreedomConfig) },
+		"freedom":   func() interface{} { return new(FreedomConfig) },
+		"socks":     func() interface{} { return new(SocksClientConfig) },
+		"vless":     func() interface{} { return new(VLessOutboundConfig) },
+		"dns":       func() interface{} { return new(DNSOutboundConfig) },
 	}, "protocol", "settings")
 )
 
@@ -210,12 +189,6 @@ func (c *InboundDetourConfig) Build() (*core.InboundHandlerConfig, error) {
 	if err != nil {
 		return nil, errors.New("failed to build inbound handler for protocol ", c.Protocol).Base(err)
 	}
-	if _, ok := ts.(*masque.ServerConfig); !ok && receiverSettings.StreamSettings != nil && receiverSettings.StreamSettings.ProtocolName == "masque" {
-		return nil, errors.New("the masque transport can only be used by the masque inbound")
-	}
-	if err := validateXDrive(ts, receiverSettings.StreamSettings, nil, receiverSettings.PortList); err != nil {
-		return nil, err
-	}
 
 	return &core.InboundHandlerConfig{
 		Tag:              c.Tag,
@@ -261,60 +234,6 @@ func validateOutboundTransportSecurity(rawConfig interface{}, senderSettings *pr
 		}
 	}
 
-	if tjCfg, ok := rawConfig.(*TrojanClientConfig); ok {
-		if requiresTransportSecurity(tjCfg.Servers[0].Address) {
-			return errors.New("trojan without TLS is prohibited unless the server address is a private IP or domain")
-		}
-	}
-
-	return nil
-}
-
-// validateXDrive allows only VLESS with encryption on xdrive, and on the client Mux.Cool for every connection
-func validateXDrive(ts proto.Message, ss *internet.StreamConfig, ms *proxyman.MultiplexingConfig, pl *net.PortList) error {
-	if ss == nil || ss.ProtocolName != "xdrive" {
-		return nil
-	}
-	switch c := ts.(type) {
-	case *outbound.Config:
-		a, err := c.Vnext.User.Account.GetInstance()
-		if err != nil {
-			return err
-		}
-		account := a.(*vless.Account)
-		if account.Flow != "" {
-			return errors.New(`the xdrive transport doesn't support VLESS "flow"`)
-		}
-		if account.Encryption == "none" {
-			return errors.New(`the xdrive transport needs VLESS "encryption", run "xray vlessenc" to get one`)
-		}
-		// reverse opens its own mux
-		if account.Reverse == nil && (ms == nil || !ms.Enabled || ms.Concurrency < 0 || ms.XudpConcurrency < 0 || ms.XudpProxyUDP443 == "skip") {
-			return errors.New(`the xdrive transport needs "mux" enabled, with no negative "concurrency" or "xudpConcurrency" and no "xudpProxyUDP443":"skip"`)
-		}
-		if account.Testpre != 0 {
-			return errors.New(`the xdrive transport doesn't support VLESS "testpre"`)
-		}
-	case *inbound.Config:
-		if c.Decryption == "none" {
-			return errors.New(`the xdrive transport needs VLESS "decryption", run "xray vlessenc" to get one`)
-		}
-		for _, user := range c.Users {
-			a, err := user.Account.GetInstance()
-			if err != nil {
-				return err
-			}
-			if a.(*vless.Account).Flow != "" {
-				return errors.New(`the xdrive transport doesn't support VLESS "flow"`)
-			}
-		}
-		// every port gets its own listener on the same folder, and each of them accepts the same session
-		if pl != nil && len(pl.Ports()) != 1 {
-			return errors.New("the xdrive transport can only listen on one port")
-		}
-	default:
-		return errors.New("the xdrive transport can only be used by VLESS")
-	}
 	return nil
 }
 
@@ -396,15 +315,8 @@ func (c *OutboundDetourConfig) Build() (*core.OutboundHandlerConfig, error) {
 	if err != nil {
 		return nil, errors.New("failed to build outbound handler for protocol ", c.Protocol).Base(err)
 	}
-	if err := validateXDrive(ts, senderSettings.StreamSettings, senderSettings.MultiplexSettings, nil); err != nil {
-		return nil, err
-	}
 	if err := validateOutboundTransportSecurity(rawConfig, senderSettings); err != nil {
 		return nil, err
-	}
-
-	if _, ok := ts.(*masque.ClientConfig); !ok && senderSettings.StreamSettings != nil && senderSettings.StreamSettings.ProtocolName == "masque" {
-		return nil, errors.New("the masque transport can only be used by the masque outbound")
 	}
 
 	if fc, ok := ts.(*freedom.Config); ok {
@@ -459,22 +371,17 @@ type Config struct {
 	// left for returning error
 	Transport map[string]json.RawMessage `json:"transport"`
 
-	Env              EnvConfig               `json:"env"`
-	LogConfig        *LogConfig              `json:"log"`
-	RouterConfig     *RouterConfig           `json:"routing"`
-	DNSConfig        *DNSConfig              `json:"dns"`
-	InboundConfigs   []InboundDetourConfig   `json:"inbounds"`
-	OutboundConfigs  []OutboundDetourConfig  `json:"outbounds"`
-	Policy           *PolicyConfig           `json:"policy"`
-	API              *APIConfig              `json:"api"`
-	Metrics          *MetricsConfig          `json:"metrics"`
-	Stats            *StatsConfig            `json:"stats"`
-	Reverse          *ReverseConfig          `json:"reverse"`
-	FakeDNS          *FakeDNSConfig          `json:"fakeDns"`
-	Observatory      *ObservatoryConfig      `json:"observatory"`
-	BurstObservatory *BurstObservatoryConfig `json:"burstObservatory"`
-	Version          *VersionConfig          `json:"version"`
-	Geodata          *GeodataConfig          `json:"geodata"`
+	Env             EnvConfig              `json:"env"`
+	LogConfig       *LogConfig             `json:"log"`
+	RouterConfig    *RouterConfig          `json:"routing"`
+	DNSConfig       *DNSConfig             `json:"dns"`
+	InboundConfigs  []InboundDetourConfig  `json:"inbounds"`
+	OutboundConfigs []OutboundDetourConfig `json:"outbounds"`
+	Policy          *PolicyConfig          `json:"policy"`
+	Stats           *StatsConfig           `json:"stats"`
+	FakeDNS         *FakeDNSConfig         `json:"fakeDns"`
+	Version         *VersionConfig         `json:"version"`
+	Geodata         *GeodataConfig         `json:"geodata"`
 }
 
 func (c *Config) findInboundTag(tag string) int {
@@ -524,29 +431,12 @@ func (c *Config) Override(o *Config, fn string) {
 	if o.Policy != nil {
 		c.Policy = o.Policy
 	}
-	if o.API != nil {
-		c.API = o.API
-	}
-	if o.Metrics != nil {
-		c.Metrics = o.Metrics
-	}
 	if o.Stats != nil {
 		c.Stats = o.Stats
-	}
-	if o.Reverse != nil {
-		c.Reverse = o.Reverse
 	}
 
 	if o.FakeDNS != nil {
 		c.FakeDNS = o.FakeDNS
-	}
-
-	if o.Observatory != nil {
-		c.Observatory = o.Observatory
-	}
-
-	if o.BurstObservatory != nil {
-		c.BurstObservatory = o.BurstObservatory
 	}
 
 	if o.Version != nil {
@@ -613,20 +503,6 @@ func (c *Config) Build() (*core.Config, error) {
 		},
 	}
 
-	if c.API != nil {
-		apiConf, err := c.API.Build()
-		if err != nil {
-			return nil, errors.New("failed to build API configuration").Base(err)
-		}
-		config.App = append(config.App, serial.ToTypedMessage(apiConf))
-	}
-	if c.Metrics != nil {
-		metricsConf, err := c.Metrics.Build()
-		if err != nil {
-			return nil, errors.New("failed to build metrics configuration").Base(err)
-		}
-		config.App = append(config.App, serial.ToTypedMessage(metricsConf))
-	}
 	if c.Stats != nil {
 		statsConf, err := c.Stats.Build()
 		if err != nil {
@@ -669,37 +545,12 @@ func (c *Config) Build() (*core.Config, error) {
 		config.App = append(config.App, serial.ToTypedMessage(pc))
 	}
 
-	if c.Reverse != nil {
-		return nil, errors.PrintRemovedFeatureError(`"legacy reverse"`, `"VLESS Reverse Proxy"`)
-		r, err := c.Reverse.Build()
-		if err != nil {
-			return nil, errors.New("failed to build reverse configuration").Base(err)
-		}
-		config.App = append(config.App, serial.ToTypedMessage(r))
-	}
-
 	if c.FakeDNS != nil {
 		r, err := c.FakeDNS.Build()
 		if err != nil {
 			return nil, errors.New("failed to build fake DNS configuration").Base(err)
 		}
 		config.App = append([]*serial.TypedMessage{serial.ToTypedMessage(r)}, config.App...)
-	}
-
-	if c.Observatory != nil {
-		r, err := c.Observatory.Build()
-		if err != nil {
-			return nil, errors.New("failed to build observatory configuration").Base(err)
-		}
-		config.App = append(config.App, serial.ToTypedMessage(r))
-	}
-
-	if c.BurstObservatory != nil {
-		r, err := c.BurstObservatory.Build()
-		if err != nil {
-			return nil, errors.New("failed to build burst observatory configuration").Base(err)
-		}
-		config.App = append(config.App, serial.ToTypedMessage(r))
 	}
 
 	if c.Version != nil {

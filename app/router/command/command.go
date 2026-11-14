@@ -98,8 +98,11 @@ func (s *routingServer) TestRoute(ctx context.Context, request *TestRouteRequest
 		return nil, err
 	}
 	if request.PublishResult && s.routingStats != nil {
-		ctx, _ := context.WithTimeout(context.Background(), 4*time.Second)
-		s.routingStats.Publish(ctx, route)
+		pubCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		// the context travels with the published message; let it expire on its
+		// own 4s deadline instead of canceling it when this call returns
+		time.AfterFunc(4*time.Second, cancel)
+		s.routingStats.Publish(pubCtx, route)
 	}
 	return AsProtobufMessage(request.FieldSelectors)(route), nil
 }

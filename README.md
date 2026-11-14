@@ -1,5 +1,47 @@
 # Project X
 
+> **[English](#about-this-fork) | [中文](#关于本精简版)**
+
+## About this fork
+
+This is a trimmed fork of [XTLS/Xray-core](https://github.com/XTLS/Xray-core), based on upstream **v26.11.9**, branch `reality-xhttp-only`. Only the following are kept:
+
+- Inbound: **VLESS** (with **REALITY** + **XHTTP**), plus local `socks` / `dokodemo-door` entries
+- Outbound: `freedom` / `blackhole` / `dns`
+- Everything else (VMess, Trojan, Shadowsocks, WireGuard, other transports, gRPC/WebSocket/KCP, observatory/metrics/reverse, etc.) has been removed.
+
+Build examples:
+
+```bash
+# Linux amd64
+GOOS=linux GOARCH=amd64 go build -o build/xray-linux-amd64 ./main
+# Linux arm64
+GOOS=linux GOARCH=arm64 go build -o build/xray-linux-arm64 ./main
+# Windows amd64
+GOOS=windows GOARCH=amd64 go build -o build/xray-windows-amd64.exe ./main
+```
+
+## 关于本精简版
+
+本仓库是 [XTLS/Xray-core](https://github.com/XTLS/Xray-core) 的精简分支，基于上游 **v26.11.9**，分支 `reality-xhttp-only`。只保留：
+
+- 入站：**VLESS**（**REALITY** + **XHTTP**），以及本地 `socks` / `dokodemo-door` 入口
+- 出站：`freedom` / `blackhole` / `dns`
+- 其余协议与传输（VMess、Trojan、Shadowsocks、WireGuard、gRPC/WebSocket/KCP、observatory/metrics/reverse 等）均已删除。
+
+构建示例：
+
+```bash
+# Linux amd64
+GOOS=linux GOARCH=amd64 go build -o build/xray-linux-amd64 ./main
+# Linux arm64
+GOOS=linux GOARCH=arm64 go build -o build/xray-linux-arm64 ./main
+# Windows amd64
+GOOS=windows GOARCH=amd64 go build -o build/xray-windows-amd64.exe ./main
+```
+
+---
+
 [Project X](https://github.com/XTLS) originates from XTLS protocol, providing a set of network tools such as [Xray-core](https://github.com/XTLS/Xray-core) and [REALITY](https://github.com/XTLS/REALITY).
 
 [README](https://github.com/XTLS/Xray-core#readme) is open, so feel free to submit your project [here](https://github.com/XTLS/Xray-core/pulls).

@@ -47,11 +47,7 @@ func ListenTCP(ctx context.Context, address net.Address, port net.Port, streamSe
 	} else { // tcp
 		addr = &net.TCPAddr{IP: address.IP(), Port: int(port)}
 	}
-	if streamSettings.FinalMask != nil {
-		listener, err = streamSettings.FinalMask.Listen(ctx, addr)
-	} else {
-		listener, err = internet.ListenSystem(ctx, addr, streamSettings.SocketSettings)
-	}
+	listener, err = internet.ListenSystem(ctx, addr, streamSettings.SocketSettings)
 	if err != nil {
 		return nil, errors.New("failed to listen ", addr.Network(), " on ", address, ":", port).Base(err)
 	}

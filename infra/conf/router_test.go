@@ -4,13 +4,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 	_ "unsafe"
 
 	"github.com/xtls/xray-core/app/router"
 	"github.com/xtls/xray-core/common/geodata"
 	"github.com/xtls/xray-core/common/net"
-	"github.com/xtls/xray-core/common/serial"
 	. "github.com/xtls/xray-core/infra/conf"
 
 	"google.golang.org/protobuf/proto"
@@ -63,27 +61,7 @@ func TestRouterConfig(t *testing.T) {
 						"tag": "b2",
 						"selector": ["test"],
 						"strategy": {
-							"type": "leastload",
-							"settings": {
-								"healthCheck": {
-									"interval": "5m0s",
-									"sampling": 2,
-									"timeout": "5s",
-									"destination": "dest",
-									"connectivity": "conn"
-								},
-								"costs": [
-									{
-										"regexp": true,
-										"match": "\\d+(\\.\\d+)",
-										"value": 5
-									}
-								],
-								"baselines": ["400ms", "600ms"],
-								"expected": 6,
-								"maxRTT": "1000ms",
-								"tolerance": 0.5
-							}
+							"type": "roundrobin"
 						},
 						"fallbackTag": "fall"
 					}
@@ -102,24 +80,8 @@ func TestRouterConfig(t *testing.T) {
 					{
 						Tag:              "b2",
 						OutboundSelector: []string{"test"},
-						Strategy:         "leastload",
-						StrategySettings: serial.ToTypedMessage(&router.StrategyLeastLoadConfig{
-							Costs: []*router.StrategyWeight{
-								{
-									Regexp: true,
-									Match:  "\\d+(\\.\\d+)",
-									Value:  5,
-								},
-							},
-							Baselines: []int64{
-								int64(time.Duration(400) * time.Millisecond),
-								int64(time.Duration(600) * time.Millisecond),
-							},
-							Expected:  6,
-							MaxRTT:    int64(time.Duration(1000) * time.Millisecond),
-							Tolerance: 0.5,
-						}),
-						FallbackTag: "fall",
+						Strategy:         "roundrobin",
+						FallbackTag:      "fall",
 					},
 				},
 				Rule: []*router.RoutingRule{
