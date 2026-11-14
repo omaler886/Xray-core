@@ -1,0 +1,56 @@
+name: Build (reality-xhttp-only)
+
+on:
+  push:
+    branches:
+      - reality-xhttp-only
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build (windows-amd64 / linux-amd64 / linux-arm64)
+        run: |
+          mkdir -p release
+          # Version injection copied from upstream .github/workflows/release.yml
+          COMMID=$(git describe --always --dirty)
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/xtls/xray-core/core.build=${COMMID}" -o release/xray-windows-amd64.exe ./main
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/xtls/xray-core/core.build=${COMMID}" -o release/xray-linux-amd64 ./main
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/xtls/xray-core/core.build=${COMMID}" -o release/xray-linux-arm64 ./main
+          sha256sum release/* > release/SHA256SUMS.txt
+          ls -la release/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xray-binaries
+          path: release/*
+
+      - name: Create release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* --title "Xray $GITHUB_REF_NAME 精简版 (VLESS REALITY+XHTTP only)" --notes "精简自 v26.11.9：只保留 VLESS(REALITY+XHTTP)+本地入口。SHA256 见 SHA256SUMS.txt"
