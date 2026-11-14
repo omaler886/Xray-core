@@ -24,6 +24,7 @@ import (
 	"github.com/xtls/xray-core/common/net/cnc"
 	"github.com/xtls/xray-core/common/signal/done"
 	"github.com/xtls/xray-core/transport/internet"
+	"github.com/xtls/xray-core/transport/internet/browser_dialer"
 	"github.com/xtls/xray-core/transport/internet/hysteria/congestion"
 	"github.com/xtls/xray-core/transport/internet/hysteria/congestion/bbr"
 	"github.com/xtls/xray-core/transport/internet/reality"
@@ -44,6 +45,12 @@ var (
 )
 
 func getHTTPClient(ctx context.Context, dest net.Destination, streamSettings *internet.MemoryStreamConfig) (DialerClient, *XmuxClient) {
+	realityConfig := reality.ConfigFromStreamSettings(streamSettings)
+
+	if browser_dialer.HasBrowserDialer() && realityConfig == nil {
+		return &BrowserDialerClient{transportConfig: streamSettings.ProtocolSettings.(*Config)}, nil
+	}
+
 	globalDialerAccess.Lock()
 	defer globalDialerAccess.Unlock()
 
@@ -111,7 +118,11 @@ func createHTTPClient(dest net.Destination, streamSettings *internet.MemoryStrea
 	dialContext := func(ctxInner context.Context) (net.Conn, error) {
 		var conn net.Conn
 		var err error
-		conn, err = internet.DialSystem(ctxInner, dest, streamSettings.SocketSettings)
+		if streamSettings.FinalMask != nil {
+			conn, err = streamSettings.FinalMask.DialTCP(ctxInner, dest)
+		} else {
+			conn, err = internet.DialSystem(ctxInner, dest, streamSettings.SocketSettings)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -183,19 +194,28 @@ func createHTTPClient(dest net.Destination, streamSettings *internet.MemoryStrea
 			Dial: func(ctx context.Context, addr string, tlsCfg *gotls.Config, cfg *quic.Config) (*quic.Conn, error) {
 				var pktConn net.PacketConn
 				var udpAddr net.Addr
-				conn, err := internet.DialSystem(ctx, dest, streamSettings.SocketSettings)
-				if err != nil {
-					return nil, errors.New("failed to dial to dest").Base(err)
-				}
-				switch c := conn.(type) {
-				case *net.PacketConnWrapper:
-					pktConn = c.PacketConn
-					udpAddr = c.RemoteAddr()
-				case *cnc.Connection:
-					pktConn = &internet.FakePacketConn{Conn: c}
-					udpAddr = &net.UDPAddr{IP: []byte{0, 0, 0, 0}}
-				default:
-					panic(reflect.TypeOf(c))
+				if streamSettings.FinalMask != nil {
+					conn, err := streamSettings.FinalMask.DialUDP(ctx, dest)
+					if err != nil {
+						return nil, errors.New("failed to dial to dest").Base(err)
+					}
+					pktConn = conn.(*net.PacketConnWrapper).PacketConn
+					udpAddr = conn.RemoteAddr()
+				} else {
+					conn, err := internet.DialSystem(ctx, dest, streamSettings.SocketSettings)
+					if err != nil {
+						return nil, errors.New("failed to dial to dest").Base(err)
+					}
+					switch c := conn.(type) {
+					case *net.PacketConnWrapper:
+						pktConn = c.PacketConn
+						udpAddr = c.RemoteAddr()
+					case *cnc.Connection:
+						pktConn = &internet.FakePacketConn{Conn: c}
+						udpAddr = &net.UDPAddr{IP: []byte{0, 0, 0, 0}}
+					default:
+						panic(reflect.TypeOf(c))
+					}
 				}
 
 				tr := &quic.Transport{Conn: pktConn, DisableGSO: quicParams.DisableGSO}
@@ -205,23 +225,23 @@ func createHTTPClient(dest net.Destination, streamSettings *internet.MemoryStrea
 					tlsCfg.GetCertificate = nil
 				}
 
-				qconn, err := tr.DialEarly(ctx, udpAddr, tlsCfg, cfg)
+				conn, err := tr.DialEarly(ctx, udpAddr, tlsCfg, cfg)
 				if err != nil {
 					return nil, err
 				}
-				context.AfterFunc(qconn.Context(), func() { tr.Close(); pktConn.Close() })
+				context.AfterFunc(conn.Context(), func() { tr.Close(); pktConn.Close() })
 
 				switch quicParams.Congestion {
 				case "reno":
 				case "", "bbr":
-					congestion.UseBBR(qconn, bbr.Profile(quicParams.BbrProfile))
+					congestion.UseBBR(conn, bbr.Profile(quicParams.BbrProfile))
 				case "force-brutal":
-					congestion.UseBrutal(qconn, quicParams.BrutalUp, quicParams.BrutalDisableLossCompensation)
+					congestion.UseBrutal(conn, quicParams.BrutalUp, quicParams.BrutalDisableLossCompensation)
 				default:
 					panic(quicParams.Congestion)
 				}
 
-				return qconn, nil
+				return conn, nil
 			},
 		}
 	} else if httpVersion == "2" {
@@ -297,6 +317,12 @@ func Dial(ctx context.Context, dest net.Destination, streamSettings *internet.Me
 	if requestURL.Host == "" {
 		requestURL.Host = dest.Address.String()
 	}
+	if browser_dialer.HasBrowserDialer() && realityConfig == nil {
+		// For Browser Dialer's optimized IP and non-standard port
+		if !(requestURL.Scheme == "http" && dest.Port == 80) && !(requestURL.Scheme == "https" && dest.Port == 443) {
+			requestURL.Host += ":" + dest.Port.String()
+		}
+	}
 
 	requestURL.Path = transportConfiguration.GetNormalizedPath()
 	requestURL.RawQuery = transportConfiguration.GetNormalizedQuery()
@@ -356,6 +382,12 @@ func Dial(ctx context.Context, dest net.Destination, streamSettings *internet.Me
 		}
 		if requestURL2.Host == "" {
 			requestURL2.Host = dest2.Address.String()
+		}
+		if browser_dialer.HasBrowserDialer() && realityConfig2 == nil {
+			// For Browser Dialer's optimized IP and non-standard port
+			if !(requestURL2.Scheme == "http" && dest2.Port == 80) && !(requestURL2.Scheme == "https" && dest2.Port == 443) {
+				requestURL2.Host += ":" + dest2.Port.String()
+			}
 		}
 		requestURL2.Path = config2.GetNormalizedPath()
 		requestURL2.RawQuery = config2.GetNormalizedQuery()

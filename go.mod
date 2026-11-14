@@ -32,10 +32,23 @@ require (
 )
 
 require (
+	github.com/google/gopacket v1.1.19 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/huin/goupnp v1.2.0 // indirect
+	github.com/jackpal/go-nat-pmp v1.0.2 // indirect
 	github.com/juju/ratelimit v1.0.2 // indirect
 	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/koron/go-ssdp v0.0.4 // indirect
+	github.com/libp2p/go-nat v1.0.1-0.20250821073202-01afc089f138 // indirect
+	github.com/libp2p/go-netroute v0.2.1 // indirect
 	github.com/molecule-man/go-brrr v1.2.0 // indirect
+	github.com/pion/dtls/v3 v3.1.5 // indirect
+	github.com/pion/logging v0.2.4 // indirect
+	github.com/pion/stun/v3 v3.1.7 // indirect
+	github.com/pion/transport/v4 v4.1.0 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
+	github.com/wlynxg/anet v0.0.5 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/tools v0.51.0 // indirect

@@ -12,10 +12,14 @@ import (
 func init() {
 	common.Must(internet.RegisterTransportDialer(protocolName,
 		func(ctx context.Context, dest net.Destination, streamSettings *internet.MemoryStreamConfig) (stat.Connection, error) {
-			var sockopt *internet.SocketConfig
-			if streamSettings != nil && streamSettings.SocketSettings != nil {
-				sockopt = streamSettings.SocketSettings
+			if streamSettings != nil && streamSettings.FinalMask != nil {
+				return streamSettings.FinalMask.DialUDP(ctx, dest)
+			} else {
+				var sockopt *internet.SocketConfig
+				if streamSettings != nil && streamSettings.SocketSettings != nil {
+					sockopt = streamSettings.SocketSettings
+				}
+				return internet.DialSystem(ctx, dest, sockopt)
 			}
-			return internet.DialSystem(ctx, dest, sockopt)
 		}))
 }

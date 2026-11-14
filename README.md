@@ -6,9 +6,9 @@
 
 This is a trimmed fork of [XTLS/Xray-core](https://github.com/XTLS/Xray-core), based on upstream **v26.11.9**, branch `reality-xhttp-only`. Only the following are kept:
 
-- Inbound: **VLESS** (with **REALITY** + **XHTTP**), plus local `socks` / `dokodemo-door` entries
+- Protocol: **VLESS** (full, incl. Encryption/mlkem and VLESS Reverse) with **ALL transports** (raw/tcp, XHTTP, WebSocket, gRPC, mKCP, HTTPUpgrade, finalmask, masque, xdrive, hysteria), plus local `socks` / `dokodemo-door` entries
 - Outbound: `freedom` / `blackhole` / `dns`
-- Everything else (VMess, Trojan, Shadowsocks, WireGuard, other transports, gRPC/WebSocket/KCP, observatory/metrics/reverse, etc.) has been removed.
+- Everything else (VMess, Trojan, Shadowsocks, WireGuard, hysteria/masque/tun proxies, commander/observatory/metrics apps, etc.) has been removed.
 
 Build examples:
 
@@ -25,9 +25,9 @@ GOOS=windows GOARCH=amd64 go build -o build/xray-windows-amd64.exe ./main
 
 本仓库是 [XTLS/Xray-core](https://github.com/XTLS/Xray-core) 的精简分支，基于上游 **v26.11.9**，分支 `reality-xhttp-only`。只保留：
 
-- 入站：**VLESS**（**REALITY** + **XHTTP**），以及本地 `socks` / `dokodemo-door` 入口
+- 协议：**VLESS**（完整，含 Encryption/mlkem 与 VLESS Reverse），**全部传输层**（raw/tcp、XHTTP、WebSocket、gRPC、mKCP、HTTPUpgrade、finalmask、masque、xdrive、hysteria），以及本地 `socks` / `dokodemo-door` 入口
 - 出站：`freedom` / `blackhole` / `dns`
-- 其余协议与传输（VMess、Trojan、Shadowsocks、WireGuard、gRPC/WebSocket/KCP、observatory/metrics/reverse 等）均已删除。
+- 其余协议与应用（VMess、Trojan、Shadowsocks、WireGuard、hysteria/masque/tun 代理、commander/observatory/metrics 等）均已删除。
 
 构建示例：
 

@@ -379,6 +379,7 @@ type Config struct {
 	OutboundConfigs []OutboundDetourConfig `json:"outbounds"`
 	Policy          *PolicyConfig          `json:"policy"`
 	Stats           *StatsConfig           `json:"stats"`
+	Reverse         *ReverseConfig         `json:"reverse"`
 	FakeDNS         *FakeDNSConfig         `json:"fakeDns"`
 	Version         *VersionConfig         `json:"version"`
 	Geodata         *GeodataConfig         `json:"geodata"`
@@ -433,6 +434,9 @@ func (c *Config) Override(o *Config, fn string) {
 	}
 	if o.Stats != nil {
 		c.Stats = o.Stats
+	}
+	if o.Reverse != nil {
+		c.Reverse = o.Reverse
 	}
 
 	if o.FakeDNS != nil {
@@ -543,6 +547,10 @@ func (c *Config) Build() (*core.Config, error) {
 			return nil, errors.New("failed to build policy configuration").Base(err)
 		}
 		config.App = append(config.App, serial.ToTypedMessage(pc))
+	}
+
+	if c.Reverse != nil {
+		return nil, errors.PrintRemovedFeatureError(`"legacy reverse"`, `"VLESS Reverse Proxy"`)
 	}
 
 	if c.FakeDNS != nil {
